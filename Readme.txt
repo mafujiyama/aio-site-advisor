@@ -1,0 +1,160 @@
+【AIOマルチエージェントでサイト構造を分析】
+
+1. 全体アーキテクチャ（概念図）
+前提：
+　バックエンド：Python + LangGraph（マルチエージェントの実行）
+　API層：FastAPI
+　ユースケース：キーワードを渡すと、
+　上位10サイトを取得 → 構造分析 → 競合比較 → 提案書・記事案・構造化データを返す
+
+・KeywordPlanner ノード
+　「どのキーワードをやるかだけ考える SEO ストラテジスト」
+・SERP ノード
+　「検索結果を取得するだけのリサーチャー（API＋ロジック）」
+・Parser ノード
+　「HTMLを構造化するテクニカルアナリスト」
+・Analyzer ノード
+　「構造を比較してスコアリングするアナリスト」
+・Strategist ノード
+　「提案書にまとめるビジネスコンサル」
+・Content / Schema ノード
+　「記事を書くライター」「構造化データを書くマークアップ担当」
+
+
+ [Client(Web UI / CLI)]
+        |
+        v
+   [FastAPI API層]
+        |
+        v
+ ┌─────────────────────┐
+ │    Orchestrator     │ ← LangGraphで実装
+ │  (Workflow/Graph)   │
+ └─────────────────────┘
+        |
+        v
+ [Agent K: キーワード設計エージェント] 
+        |
+        v
+  優先キーワード群 (keyword_plan)
+        |
+        |  (for each keyword)
+        v
+   |      |        |        |         |          |
+   v      v        v        v         v          v
+[Agent] [Agent]  [Agent]  [Agent]   [Agent]    [Agent]
+ SERP   Parser   Analyzer Strategist Content   Schema
+取得    構造化   競合比較   提案化     記事生成   構造化データ
+
+2. ディレクトリ構成（MVP用）
+リポジトリ名の例：aio-site-advisor
+
+aio-site-advisor/
+├── app/
+│   ├── main.py               # FastAPI エントリポイント
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── routes.py         # /analyze などのエンドポイント定義
+│   ├── graph/
+│   │   ├── __init__.py
+│   │   ├── state.py          # LangGraphの状態定義（キーワード、結果など）
+│   │   └── workflow.py       # Orchestrator：ノードとフロー定義
+│   └── config.py             # 共通設定（APIキー、SERPクライアント設定など）
+│
+├── agents/
+│   ├── __init__.py
+│   ├── serp_agent.py         # Agent1: 上位10件取得 + メタ情報
+│   ├── parser_agent.py       # Agent2: HTML → 構造データ化
+│   ├── analyzer_agent.py     # Agent3: 競合比較・スコアリング
+│   ├── strategist_agent.py   # Agent4: 提案書ドラフト生成
+│   ├── content_agent.py      # Agent5: 記事構成/本文ドラフト
+│   └── schema_agent.py       # Agent6: 構造化データ(JSON-LD)生成
+│
+├── services/
+│   ├── __init__.py
+│   ├── serp_client.py        # Google/SerpAPI/Bing等への検索クライアント
+│   ├── crawler.py            # HTML取得（requests/Playwright等）
+│   ├── html_parser.py        # BeautifulSoup等での構造抽出
+│   ├── seo_metrics.py        # キーワード出現率、タイトル文字数などの指標計算
+│   └── report_builder.py     # 提案書用のMarkdown/JSON構造を組み立て
+│
+├── models/
+│   ├── __init__.py
+│   ├── serp_models.py        # 検索結果・サイト構造データ用のPydanticモデル
+│   ├── analysis_models.py    # スコア・ギャップ分析結果のモデル
+│   └── report_models.py      # 提案書・記事ブリーフ・構造化データのモデル
+│
+├── data/
+│   ├── tmp/                  # 一時ファイル・キャッシュ
+│   └── reports/              # 出力したレポート(Markdown/JSONなど)
+│
+├── config/
+│   ├── settings.example.yaml # 環境設定サンプル（SERP APIキーなど）
+│   └── keywords_sample.txt   # サンプルキーワード一覧（テスト用）
+│
+├── tests/
+│   ├── __init__.py
+│   ├── test_serp_agent.py
+│   ├── test_parser_agent.py
+│   ├── test_analyzer_agent.py
+│   ├── test_content_agent.py
+│   └── test_schema_agent.py
+│
+├── scripts/
+│   ├── run_local.sh          # ローカル起動用（uvicorn + 簡易テスト）
+│   └── example_request.http  # VSCode用のサンプルリクエスト
+│
+├── docker/
+│   ├── Dockerfile            # アプリ用Dockerfile（必要なら）
+│   └── docker-compose.yml    # Redisなどとまとめて起動する場合
+│
+├── .env.example              # OPENAI_API_KEYなどの環境変数サンプル
+├── pyproject.toml or requirements.txt
+└── README.md
+
+
+3. 各レイヤーの役割イメージ
+app/
+・app/main.py
+　　FastAPIアプリを立ち上げ
+　　POST /analyze でキーワードと対象サイトURLを受け取り、LangGraphのワークフローを実行
+　　app/graph/workflow.py
+　　ここに「マルチエージェントのフロー」を集約
+　　例：
+　　　ノード node_serp → node_parse → node_analyze → node_strategist → node_content → node_schema
+　　　app/graph/state.py
+　　　LangGraphのStateクラス（キーワード、SERP結果、構造データ、分析結果、提案書、記事案、構造化データ…）を定義
+agents/
+　　それぞれ「LLMのプロンプト + 必要なツール呼び出し」に集中させるイメージです。
+　　　例：agents/analyzer_agent.py の役割
+　　　入力：
+　　　　フィールド例：sites_structures（上位10サイト分の構造データ）、target_site_structure（自社）
+　　　処理：
+　　　　services.seo_metrics を使って数値指標（タイトル文字数、キーワード比率など）を計算
+　　　　LLMで「どこが弱く、どこを真似すべきか」を自然言語で整理する
+　　　出力：
+　　　　AnalysisResult（スコア表＋ギャップコメント＋改善ポイント）
+services/
+　　・serp_client.py
+　　　　SerpAPI / カスタム検索APIの呼び出しロジックだけをベタっと書く場所
+　　　crawler.py
+　　　　HTML取得（User-Agent、タイムアウトなどもここ）
+　　・html_parser.py
+　　　　BeautifulSoupなどで
+　　　　　　<title> / <meta> / h1~h3
+　　　　　　パンくず
+　　　　　　本文本文の抽出
+　　・seo_metrics.py
+　　　　「キーワード出現率」「見出しカバレッジ」「文字数」などの計算ロジック
+　　・report_builder.py
+　　　　AnalysisResult から提案書の章立て・Markdown整形などを一手に引き受ける
+　　・models/
+　　　　API入出力、LangGraph state、各エージェント間のデータ受け渡しを型で固定しておくと、
+　　　　プロンプトがブレにくい
+　　　　テストしやすいので、ここはしっかり切っておくのがオススメです。
+
+
+
+
+
+

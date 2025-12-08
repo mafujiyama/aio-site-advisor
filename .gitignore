@@ -1,0 +1,76 @@
+# ================
+# Python general
+# ================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.so
+
+# Virtual environments
+.env/
+.venv/
+venv/
+ENV/
+*.egg-info/
+
+# ================
+# Project specific
+# ================
+# FastAPI / Uvicorn
+*.db
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Cache
+.cache/
+*.cache
+.cache/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ================
+# OS / Editor files
+# ================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# VSCode
+.vscode/
+
+# JetBrains
+.idea/
+
+# ================
+# Environment files
+# ================
+.env
+.env.*
+*.env
+
+# ================
+# Node (もし使う場合)
+# ================
+node_modules/
+
+# ================
+# Build / Dist
+# ================
+dist/
+build/
