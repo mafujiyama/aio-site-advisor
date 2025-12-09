@@ -1,56 +1,71 @@
 # services/serp_client.py
 
-from typing import List
-from urllib.parse import quote
+from __future__ import annotations
 
+import logging
+from typing import List
+
+import requests
+
+from app.config import settings
 from models.serp_models import SerpResult
 
+logger = logging.getLogger(__name__)
 
-def search_serp_mock(query: str, limit: int = 5) -> List[SerpResult]:
-    """
-    開発用の簡易 SERP モック。
-    - 1件目: MISUMI の検索結果ページ
-    - 2件目: MonotaRO の検索結果ページ
-    - 3件目以降: ダミーの example.com
-    ※ limit が 2 以下なら、実アクセスは最大2件。
-    """
 
-    results: List[SerpResult] = []
-
-    # 1: MISUMI 検索結果
-    misumi_url = f"https://jp.misumi-ec.com/vona2/result/?Keyword={quote(query)}"
-    results.append(
+def _mock_serp(keyword: str) -> List[SerpResult]:
+    """APIキーがない場合などに使う MISUMI / MonotaRO モック。"""
+    return [
         SerpResult(
             rank=1,
-            title=f"MISUMI 検索結果: {query}",
-            url=misumi_url,
-            snippet=f"MISUMI で {query} を検索した結果ページです。",
-        )
-    )
-
-    if limit == 1:
-        return results
-
-    # 2: MonotaRO 検索結果
-    monotaro_url = f"https://www.monotaro.com/s/q/{quote(query)}/"
-    results.append(
+            title=f"MISUMI 検索結果: {keyword}",
+            url=f"https://jp.misumi-ec.com/vona2/result/?Keyword={keyword}",
+            snippet=f"MISUMI で {keyword} を検索した結果ページです。",
+        ),
         SerpResult(
             rank=2,
-            title=f"MonotaRO 検索結果: {query}",
-            url=monotaro_url,
-            snippet=f"MonotaRO で {query} を検索した結果ページです。",
-        )
-    )
+            title=f"MonotaRO 検索結果: {keyword}",
+            url=f"https://www.monotaro.com/s/q/{keyword}/",
+            snippet=f"MonotaRO で {keyword} を検索した結果ページです。",
+        ),
+    ]
 
-    # 3件目以降はダミー
-    for i in range(3, limit + 1):
+
+def fetch_serp_google(keyword: str, limit: int = 5) -> List[SerpResult]:
+    """Google Custom Search JSON API を使って SERP を取得する。"""
+    api_key = settings.google_search_api_key
+    cx = settings.google_search_cx
+
+    if not api_key or not cx:
+        logger.warning("Google Search APIキーまたはCXが設定されていないためモックを使用します")
+        return _mock_serp(keyword)
+
+    params = {
+        "key": api_key,
+        "cx": cx,
+        "q": keyword,
+        "num": min(limit, 10),
+        "hl": "ja",
+    }
+    resp = requests.get("https://www.googleapis.com/customsearch/v1", params=params, timeout=10)
+    resp.raise_for_status()
+    data = resp.json()
+
+    results: List[SerpResult] = []
+    for rank, item in enumerate(data.get("items", []), start=1):
         results.append(
             SerpResult(
-                rank=i,
-                title=f"{query} に関するサンプルタイトル {i}",
-                url=f"https://example.com/{query}/sample-{i}",
-                snippet=f"{query} に関するサンプルスニペット {i} です。",
+                rank=rank,
+                title=item.get("title", ""),
+                url=item.get("link", ""),
+                snippet=item.get("snippet", "") or item.get("title", ""),
             )
         )
+        if len(results) >= limit:
+            break
+
+    if not results:
+        # 何も取れなかったときはモックで補完
+        return _mock_serp(keyword)
 
     return results

@@ -1,14 +1,20 @@
 # agents/keyword_planner_agent.py
 
-from typing import Optional
+from __future__ import annotations
 
+import json
+from typing import List, Optional
+
+from openai import OpenAI
+
+from app.config import settings
 from models.keyword_models import KeywordPlan, KeywordItem
 
 
 def _fallback_plan(seed_keyword: str) -> KeywordPlan:
     """
     APIキーやLLMがなくても必ず動く、固定ロジックのキーワードプラン。
-    当面はこれを「KeywordPlannerエージェント」として扱う。
+    当面はこれを「KeywordPlannerエージェント」のフォールバックとして扱う。
     """
     items = [
         KeywordItem(
@@ -85,10 +91,132 @@ def _fallback_plan(seed_keyword: str) -> KeywordPlan:
     return KeywordPlan(seed_keyword=seed_keyword, items=items)
 
 
+def _clamp_priority(value: Optional[int]) -> int:
+    """priority を 1〜5 の範囲に丸める（None の場合は 3）。"""
+    if value is None:
+        return 3
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return 3
+    return max(1, min(5, v))
+
+
+def _normalize_intent(value: Optional[str]) -> str:
+    """LLM から返ってきた intent を既定の4分類に正規化する。"""
+    if not value:
+        return "KNOW"
+    v = value.upper()
+    if v in ("KNOW", "COMPARE", "BUY", "NAVIGATIONAL"):
+        return v
+    # ざっくりマッピング（日本語や英語のバリエーションが来た場合用）
+    if "NAV" in v:
+        return "NAVIGATIONAL"
+    if "COMP" in v:
+        return "COMPARE"
+    if "BUY" in v or "PURCHASE" in v or "CV" in v:
+        return "BUY"
+    return "KNOW"
+
+
+def _llm_plan(seed_keyword: str, site_profile: Optional[dict] = None) -> KeywordPlan:
+    """LLM を使ってキーワードプランを生成する。失敗した場合は例外を投げる。"""
+    if not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY が設定されていません")
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    model_name = settings.openai_model
+
+    # site_profile は将来拡張用（サイトの特徴・ターゲットなど）
+    site_profile_text = json.dumps(site_profile, ensure_ascii=False) if site_profile else "null"
+
+    system_prompt = """
+あなたはBtoB製造業向けのSEOキーワードプランナーです。
+指定された seed_keyword を軸に、関連する検索キーワード候補を JSON 形式で返してください。
+
+必ず次のスキーマに従ってください:
+
+{
+  "items": [
+    {
+      "keyword": "string",
+      "intent": "KNOW | COMPARE | BUY | NAVIGATIONAL | null",
+      "category": "string | null",
+      "priority": 1-5 | null,
+      "reason": "string | null"
+    }
+  ]
+}
+""".strip()
+
+    user_prompt = f"""
+seed_keyword: {seed_keyword}
+
+site_profile (JSON): {site_profile_text}
+
+要件:
+- intent は KNOW / COMPARE / BUY / NAVIGATIONAL のいずれか（不明なら null）
+- priority は 1〜5（重要度が高いほど数値を大きく）
+- category は「基礎・概要」「比較・選定」「導入事例」「設計・ノウハウ」「購入・見積」など任意
+- reason には、なぜこのキーワードが有効かを一言で記載（省略可）
+- ロングテールキーワードも含める
+- items は20〜30件程度を目安とする
+""".strip()
+
+    response = client.chat.completions.create(
+        model=model_name,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+    )
+
+    content = response.choices[0].message.content
+    if content is None:
+        raise RuntimeError("LLM からコンテンツが返却されませんでした")
+
+    data = json.loads(content)
+    raw_items = data.get("items", [])
+
+    items: List[KeywordItem] = []
+    for raw in raw_items:
+        keyword = raw.get("keyword")
+        if not keyword:
+            continue
+
+        intent_raw = raw.get("intent")
+        category = raw.get("category")
+        priority_raw = raw.get("priority")
+        reason = raw.get("reason")
+
+        items.append(
+            KeywordItem(
+                keyword=keyword,
+                intent=_normalize_intent(intent_raw),
+                category=category,
+                priority=_clamp_priority(priority_raw),
+                reason=reason,
+            )
+        )
+
+    # 念のため、一件も取れなかった場合はフォールバック
+    if not items:
+        raise RuntimeError("LLM から有効な items が取得できませんでした")
+
+    return KeywordPlan(seed_keyword=seed_keyword, items=items)
+
+
 def plan_keywords(seed_keyword: str, site_profile: Optional[dict] = None) -> KeywordPlan:
     """
-    現時点では LLM を使わず、
-    どの環境でも必ず動作するフォールバックロジックのみを使用する。
+    キーワードプランを生成するエントリポイント。
+
+    優先順位:
+    1. OPENAI_API_KEY が設定されていれば LLM ベースのプランを試す
+    2. 例外が発生した場合や APIキー未設定時は、固定ロジックのフォールバックを返す
     """
-    # site_profile は将来の拡張用。今は使わない。
-    return _fallback_plan(seed_keyword)
+    try:
+        return _llm_plan(seed_keyword, site_profile=site_profile)
+    except Exception:
+        # ログ出力などは必要に応じてここに追加
+        return _fallback_plan(seed_keyword)

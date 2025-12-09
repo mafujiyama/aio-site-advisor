@@ -1,35 +1,52 @@
 # agents/parser_agent.py
 
 from typing import List
+import logging
 
 from models.serp_models import SerpResult
-from models.site_models import SiteStructure, Heading
+from models.site_models import SiteStructure
 from services.crawler import fetch_html
 from services.html_parser import parse_html
+
+logger = logging.getLogger(__name__)
 
 
 def parse_sites_from_serp(serp_results: List[SerpResult]) -> List[SiteStructure]:
     """
-    SERPで得たURLリストに対して、
-    実際にHTMLを取りに行き、SiteStructureに変換する。
-    もしHTML取得やパースに失敗した場合は、
-    SERP情報からの簡易ダミー構造を返す（空にはしない）。
+    SERP で得た URL リストに対して HTML を取得し、SiteStructure に変換する。
+    失敗した URL については、SERP 情報から簡易的な構造を生成する（空にはしない）。
+
+    将来的な拡張ポイント：
+    - 見出し階層の tree 構造化
+    - TF-IDF 用の token 化
+    - LLM に渡す summary 作成
+    - コンテンツスコアリング用のメタ情報追加
     """
     structures: List[SiteStructure] = []
 
     for res in serp_results:
+        url = res.url
         try:
-            # まずは本命：実HTMLを取りに行く
-            html = fetch_html(res.url)
-            structure = parse_html(res.url, html)
-            structures.append(structure)
-        except Exception as e:
-            # ここに来る＝HTTPエラー / TLS / パースエラーなど
-            print(f"[parser_agent] error for {res.url}: {e}")
+            logger.info(f"[parser_agent] Fetching HTML: {url}")
 
-            # フォールバック：SERPの title / snippet から最低限の構造を作る
+            # ----- 1) HTML を取得 -----
+            html = fetch_html(url)
+
+            # ----- 2) BeautifulSoup などで構造化 -----
+            structure = parse_html(url, html)
+            structures.append(structure)
+
+            logger.info(
+                f"[parser_agent] Parsed successfully: {url} "
+                f"(title={structure.title}, words={structure.word_count})"
+            )
+
+        except Exception as e:
+            # ----- 3) フォールバック -----
+            logger.warning(f"[parser_agent] Error for {url}: {e}")
+
             fallback = SiteStructure(
-                url=res.url,
+                url=url,
                 title=res.title,
                 meta_description=res.snippet,
                 h1_list=[],
@@ -38,5 +55,10 @@ def parse_sites_from_serp(serp_results: List[SerpResult]) -> List[SiteStructure]
                 word_count=len((res.snippet or "").split()),
             )
             structures.append(fallback)
+
+            logger.info(
+                f"[parser_agent] Fallback used for URL: {url} "
+                f"(title={fallback.title}, words={fallback.word_count})"
+            )
 
     return structures

@@ -39,6 +39,9 @@ def run_simple_analysis(
     ① キーワードプラン → ② 上位キーワードごとに SERP を取得するだけの
     簡易ワークフロー（LangGraphを使わない版）。
     /api/analyze-simple から呼ばれる。
+
+    ※ plan_keywords() が LLM＋フォールバック実装のため、
+       ここも自動的に LLM 対応済み。
     """
     state = WorkflowState(seed_keyword=seed_keyword, site_profile=site_profile)
 

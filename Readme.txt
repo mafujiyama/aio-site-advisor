@@ -155,6 +155,42 @@ services/
 
 
 
+■実行手順
+Windows
+1.プロジェクトフォルダに移動
+cd C:\Users\masaki.fujiyama\Desktop\aio-site-advisor-main
+
+
+2. 仮想環境を作成
+py -m venv venv
+
+
+3. 稼働環境を有効化
+py -m venv venv
+　成功すると
+　(venv) C:\Users\masaki.fujiyama\Desktop\aio-site-advisor-main>
+
+4. パッケージインストール
+pip install -r requirements.txt
+
+5. アプリ起動
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+8000ポートだと不正アクセスとみなされる為、8001で起動。
+
+6. Swaggerを開く
+http://127.0.0.1:8001/docs
+
+
+
+
+macのセッティング
+pip install pydantic-settings
+
+
+
+
+
+
 
 
 

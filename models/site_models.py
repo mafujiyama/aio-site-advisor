@@ -1,18 +1,24 @@
 # models/site_models.py
-from pydantic import BaseModel
-from typing import List, Optional
 
-class Heading(BaseModel):
-    level: int              # 1,2,3 など (h1, h2, h3)
+from __future__ import annotations
+from typing import List, Optional
+from pydantic import BaseModel
+
+
+class HeadingNode(BaseModel):
+    level: int            # 1〜6
     text: str
+    children: List["HeadingNode"] = []
+
 
 class SiteStructure(BaseModel):
     url: str
-    title: Optional[str] = None
+    title: str
     meta_description: Optional[str] = None
-
     h1_list: List[str] = []
-    headings: List[Heading] = []  # h2, h3 など
-
-    main_text: Optional[str] = None
-    word_count: int = 0
+    headings: List[str] = []  # 従来の平坦なリストは残す
+    heading_tree: List[HeadingNode] = []   # ★ 階層ツリー
+    main_text: str
+    word_count: int
+    # TF-IDF用の素データ（単純な term → tf）
+    term_freq: dict[str, int] = {}

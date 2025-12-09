@@ -7,4 +7,5 @@ python-dotenv
 requests
 beautifulsoup4
 lxml
-openai
+openai>=1.52.0
+pydantic-settings>=2.4.0

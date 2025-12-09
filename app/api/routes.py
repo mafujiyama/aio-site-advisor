@@ -6,10 +6,11 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.graph.workflow import (
-    run_keyword_planning,
     run_simple_analysis,
 )
 from app.graph.lg_workflow import graph_app
+
+from agents.keyword_planner_agent import plan_keywords as plan_keywords_agent
 
 from models.keyword_models import KeywordPlan
 from models.serp_models import SerpResult
@@ -21,6 +22,7 @@ router = APIRouter()
 
 
 # ========= リクエストモデル =========
+
 
 class KeywordPlanRequest(BaseModel):
     seed_keyword: str
@@ -39,6 +41,7 @@ class AnalyzeLgRequest(BaseModel):
 
 # ========= レスポンスモデル =========
 
+
 class KeywordPlanResponse(BaseModel):
     seed_keyword: str
     keyword_plan: KeywordPlan
@@ -56,6 +59,7 @@ class AnalyzeLgResponse(BaseModel):
     LangGraph を使ったマルチステップ分析のレスポンス。
     Analyzer ノードの結果 (analysis) も含める。
     """
+
     seed_keyword: str
     keyword_plan: KeywordPlan
     serp_results: Dict[str, List[SerpResult]]
@@ -65,18 +69,23 @@ class AnalyzeLgResponse(BaseModel):
 
 # ========= エンドポイント =========
 
+
 @router.post("/plan-keywords", response_model=KeywordPlanResponse)
 def plan_keywords_endpoint(body: KeywordPlanRequest) -> KeywordPlanResponse:
-    state = run_keyword_planning(
+    """
+    KeywordPlanner エージェント単体テスト用エンドポイント。
+
+    - OPENAI_API_KEY があれば LLM ベースでキーワードを生成
+    - エラー時やキー未設定時はフォールバックロジックで生成
+    """
+    plan: KeywordPlan = plan_keywords_agent(
         seed_keyword=body.seed_keyword,
         site_profile=body.site_profile,
     )
-    if not state.keyword_plan:
-        raise RuntimeError("keyword_plan が生成されていません")
 
     return KeywordPlanResponse(
-        seed_keyword=state.seed_keyword,
-        keyword_plan=state.keyword_plan,
+        seed_keyword=body.seed_keyword,
+        keyword_plan=plan,
     )
 
 
@@ -118,5 +127,5 @@ def analyze_lg_endpoint(body: AnalyzeLgRequest) -> AnalyzeLgResponse:
         keyword_plan=final_state["keyword_plan"],
         serp_results=final_state.get("serp_results", {}),
         site_structures=final_state.get("site_structures", {}),
-        analysis=final_state.get("analysis", {}),  # ★ ここで必ず詰める
+        analysis=final_state.get("analysis", {}),
     )

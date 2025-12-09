@@ -1,51 +1,81 @@
 # services/html_parser.py
 
-from typing import List, Optional
-from bs4 import BeautifulSoup   # pip install beautifulsoup4
+from __future__ import annotations
 
-from models.site_models import SiteStructure, Heading
+import re
+from typing import List
+import logging
+
+import requests
+from bs4 import BeautifulSoup
+
+from models.site_models import SiteStructure, HeadingNode
+
+logger = logging.getLogger(__name__)
 
 
-def extract_main_text(soup: BeautifulSoup) -> str:
-    """
-    超ざっくり版の本文抽出：
-    - script/style/nav/footer などは除外
-    - 残りのテキストを連結
-    """
-    for tag in soup(["script", "style", "noscript", "header", "footer", "nav"]):
+def _build_heading_tree(soup: BeautifulSoup) -> List[HeadingNode]:
+    """h1〜h6 を元に簡易的な階層ツリーを構築する。"""
+    nodes: List[HeadingNode] = []
+    stack: List[HeadingNode] = []
+
+    for tag in soup.find_all(re.compile(r"h[1-6]")):
+        level = int(tag.name[1])
+        text = tag.get_text(strip=True)
+        node = HeadingNode(level=level, text=text, children=[])
+
+        # スタックを使って階層を構築
+        while stack and stack[-1].level >= level:
+            stack.pop()
+
+        if not stack:
+            nodes.append(node)
+        else:
+            stack[-1].children.append(node)
+
+        stack.append(node)
+
+    return nodes
+
+
+def _extract_main_text(soup: BeautifulSoup) -> str:
+    # 非表示要素や script / style を除外
+    for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
-
-    texts: List[str] = []
-    for elem in soup.find_all(text=True):
-        t = elem.strip()
-        if t:
-            texts.append(t)
-    return " ".join(texts)
+    text = soup.get_text(separator=" ", strip=True)
+    text = re.sub(r"\s+", " ", text)
+    return text
 
 
-def parse_html(url: str, html: str) -> SiteStructure:
+def _tokenize(text: str) -> List[str]:
+    # ひとまずスペース区切り＋記号除去の簡易版
+    # （必要であれば後でJanomeなどを利用して日本語形態素解析に変更）
+    text = re.sub(r"[^\wぁ-んァ-ン一-龥]+", " ", text)
+    tokens = [t for t in text.split() if t]
+    return tokens
+
+
+def fetch_and_parse(url: str) -> SiteStructure:
+    """URLからHTMLを取得し、構造化情報に変換する。"""
+    resp = requests.get(url, timeout=10)
+    resp.raise_for_status()
+    html = resp.text
+
     soup = BeautifulSoup(html, "html.parser")
 
-    title = soup.title.string.strip() if soup.title and soup.title.string else None
-
+    title = soup.title.get_text(strip=True) if soup.title else url
     meta_desc_tag = soup.find("meta", attrs={"name": "description"})
-    meta_description: Optional[str] = None
-    if meta_desc_tag and meta_desc_tag.get("content"):
-        meta_description = meta_desc_tag["content"].strip()
+    meta_description = meta_desc_tag.get("content") if meta_desc_tag else None
 
-    # h1
-    h1_list: List[str] = [h.get_text(strip=True) for h in soup.find_all("h1")]
+    h1_list = [h.get_text(strip=True) for h in soup.find_all("h1")]
+    headings = [h.get_text(strip=True) for h in soup.find_all(re.compile(r"h[1-6]"))]
+    heading_tree = _build_heading_tree(soup)
 
-    # h2/h3 他
-    headings: List[Heading] = []
-    for level in [2, 3]:
-        for tag in soup.find_all(f"h{level}"):
-            text = tag.get_text(strip=True)
-            if text:
-                headings.append(Heading(level=level, text=text))
-
-    main_text = extract_main_text(soup)
-    word_count = len(main_text.split()) if main_text else 0
+    main_text = _extract_main_text(soup)
+    tokens = _tokenize(main_text)
+    term_freq = {}
+    for t in tokens:
+        term_freq[t] = term_freq.get(t, 0) + 1
 
     return SiteStructure(
         url=url,
@@ -53,6 +83,8 @@ def parse_html(url: str, html: str) -> SiteStructure:
         meta_description=meta_description,
         h1_list=h1_list,
         headings=headings,
+        heading_tree=heading_tree,
         main_text=main_text,
-        word_count=word_count,
+        word_count=len(tokens),
+        term_freq=term_freq,
     )

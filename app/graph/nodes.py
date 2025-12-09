@@ -1,87 +1,82 @@
 # app/graph/nodes.py
 
-from typing import Dict, List
-from langchain_core.runnables import RunnableConfig
+import logging
+from datetime import datetime
 
 from app.graph.lg_state import GraphState
 from agents.keyword_planner_agent import plan_keywords
 from agents.serp_agent import fetch_serp_for_keyword
-from agents.parser_agent import parse_sites_from_serp
-from agents.analyzer_agent import analyze_for_graph
-from models.serp_models import SerpResult
-from models.site_models import SiteStructure
+from agents.parser_agent import parse_sites_for_keyword
+from agents.analyzer_agent import analyze_keyword
+
+logger = logging.getLogger(__name__)
 
 
-# テストしやすいように少なめ
-TOP_N_KEYWORDS = 1   # 上位1キーワードだけ
-SERP_LIMIT = 2       # SERP上位2件だけ
+def _log_progress(state: GraphState, node_name: str, message: str) -> GraphState:
+    ts = datetime.utcnow().isoformat()
+    line = f"[{ts}] [{node_name}] {message}"
+    logger.info(line)
+    # progress_messages にも追加
+    state.progress_messages.append(line)
+    state.current_node = node_name
+    return state
 
 
-def keyword_planner_node(state: GraphState, config: RunnableConfig) -> Dict:
-    """
-    キーワード設計エージェントノード
-    seed_keyword と site_profile から KeywordPlan を作る
-    """
-    seed_keyword = state["seed_keyword"]
-    site_profile = state.get("site_profile")
-
-    keyword_plan = plan_keywords(seed_keyword, site_profile)
-
-    return {
-        "keyword_plan": keyword_plan
-    }
+def keyword_planner_node(state: GraphState) -> GraphState:
+    state = _log_progress(state, "keyword_planner", "start: generating keyword plan")
+    plan = plan_keywords(seed_keyword=state.seed_keyword, site_profile=state.site_profile)
+    state.keyword_plan = plan
+    state = _log_progress(
+        state,
+        "keyword_planner",
+        f"done: generated {len(plan.items)} keyword candidates",
+    )
+    return state
 
 
-def serp_node(state: GraphState, config: RunnableConfig) -> Dict:
-    """
-    KeywordPlan から上位キーワードを選び、SERP（モック or 実）を取得するノード
-    """
-    keyword_plan = state.get("keyword_plan")
-    if keyword_plan is None:
-        raise RuntimeError("keyword_plan が state にありません")
+def serp_node(state: GraphState) -> GraphState:
+    state = _log_progress(state, "serp", "start: fetching SERP for top keywords")
 
-    serp_results: Dict[str, List[SerpResult]] = {}
+    if not state.keyword_plan:
+        return _log_progress(state, "serp", "skip: keyword_plan is None")
 
-    for kw in keyword_plan.top_keywords(limit=TOP_N_KEYWORDS):
-        results = fetch_serp_for_keyword(kw.keyword, limit=SERP_LIMIT)
-        serp_results[kw.keyword] = results
+    # 上位3〜5件くらいだけ
+    for item in state.keyword_plan.top_keywords(limit=5):
+        results = fetch_serp_for_keyword(item.keyword, limit=5)
+        state.serp_results[item.keyword] = results
 
-    return {
-        "serp_results": serp_results
-    }
-
-
-def parser_node(state: GraphState, config: RunnableConfig) -> Dict:
-    """
-    SERP結果のURLごとにHTMLを取得し、SiteStructure に変換するノード
-    """
-    serp_results = state.get("serp_results") or {}
-
-    site_structures: Dict[str, List[SiteStructure]] = {}
-
-    for keyword, results in serp_results.items():
-        structures = parse_sites_from_serp(results)
-        site_structures[keyword] = structures
-
-    return {
-        "site_structures": site_structures
-    }
+    state = _log_progress(
+        state,
+        "serp",
+        f"done: fetched SERP for {len(state.serp_results)} keywords",
+    )
+    return state
 
 
-def analyzer_node(state: GraphState, config: RunnableConfig) -> Dict:
-    """
-    Parser の出力（site_structures）と keyword_plan をもとに
-    ページ構造を数値化するノード
-    """
-    site_structures = state.get("site_structures") or {}
-    keyword_plan = state.get("keyword_plan")
-    if not keyword_plan:
-        # keyword_plan がない場合は何もしない
-        return {}
+def parser_node(state: GraphState) -> GraphState:
+    state = _log_progress(state, "parser", "start: parsing HTML & building structures")
 
-    analysis = analyze_for_graph(site_structures, keyword_plan)
+    for kw, serp_list in state.serp_results.items():
+        structures = parse_sites_for_keyword(kw, serp_list)
+        state.site_structures[kw] = structures
 
-    # ★ ここで必ず key を返す（空でも）
-    return {
-        "analysis": analysis
-    }
+    state = _log_progress(
+        state,
+        "parser",
+        f"done: parsed structures for {len(state.site_structures)} keywords",
+    )
+    return state
+
+
+def analyzer_node(state: GraphState) -> GraphState:
+    state = _log_progress(state, "analyzer", "start: analyzing structures")
+
+    for kw, structures in state.site_structures.items():
+        state.analysis[kw] = analyze_keyword(kw, structures)
+
+    state = _log_progress(
+        state,
+        "analyzer",
+        f"done: built analysis for {len(state.analysis)} keywords",
+    )
+    return state

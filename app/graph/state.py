@@ -11,8 +11,9 @@ from models.analysis_models import KeywordStructureAnalysis
 
 class WorkflowState(BaseModel):
     """
-    LangGraph ではなく、従来のシンプルなワークフロー用の State。
-    /api/plan-keywords や /api/analyze-simple から利用される。
+    LLangGraph ではなく、従来のシンプルなワークフロー用の State。
+    /api/analyze-simple から利用される。
+    （/api/plan-keywords は現在は直接エージェントを呼び出しており、この State は使用しない）
     """
 
     # 入力
