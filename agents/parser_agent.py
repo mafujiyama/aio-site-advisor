@@ -1,6 +1,6 @@
 # agents/parser_agent.py
 
-from typing import List
+from typing import List, Optional
 import logging
 
 from models.serp_models import SerpResult
@@ -62,3 +62,26 @@ def parse_sites_from_serp(serp_results: List[SerpResult]) -> List[SiteStructure]
             )
 
     return structures
+
+
+def parse_sites_for_keyword(
+    keyword_or_serp: object,
+    maybe_serp: Optional[List[SerpResult]] = None,
+) -> List[SiteStructure]:
+    """
+    LangGraph ノード側との互換用ラッパ。
+
+    想定される呼び出しパターン：
+      - parse_sites_for_keyword(serp_results)
+      - parse_sites_for_keyword(keyword, serp_results)
+
+    どちらの場合でも最終的に parse_sites_from_serp() を呼び出す。
+    """
+    # パターン1: parse_sites_for_keyword(serp_results)
+    if maybe_serp is None:
+        serp_results = keyword_or_serp  # type: ignore[assignment]
+    else:
+        # パターン2: parse_sites_for_keyword(keyword, serp_results)
+        serp_results = maybe_serp
+
+    return parse_sites_from_serp(serp_results)  # type: ignore[arg-type]

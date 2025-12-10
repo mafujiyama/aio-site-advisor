@@ -32,15 +32,14 @@ def run_keyword_planning(
 def run_simple_analysis(
     seed_keyword: str,
     site_profile: Optional[dict] = None,
-    top_n_keywords: int = 3,
-    serp_limit: int = 5,
+    top_n_keywords: int = 10,  # ★ デフォルトを 10 に
+    serp_limit: int = 10,      # ★ SERP も 10 件/キーワード
 ) -> WorkflowState:
     """
-    ① キーワードプラン → ② 上位キーワードごとに SERP を取得するだけの
-    簡易ワークフロー（LangGraphを使わない版）。
+    ① キーワードプラン → ② 上位キーワードごとに SERP を取得する簡易ワークフロー。
     /api/analyze-simple から呼ばれる。
 
-    ※ plan_keywords() が LLM＋フォールバック実装のため、
+    ※ plan_keywords() は LLM＋フォールバック実装のため、
        ここも自動的に LLM 対応済み。
     """
     state = WorkflowState(seed_keyword=seed_keyword, site_profile=site_profile)
@@ -49,8 +48,10 @@ def run_simple_analysis(
     keyword_plan = plan_keywords(seed_keyword, site_profile)
     state.keyword_plan = keyword_plan
 
-    # 2) 上位 N キーワードに対して SERP を取得
-    for kw in keyword_plan.top_keywords(limit=top_n_keywords):
+    # 2) 上位 N キーワードに対して SERP を取得（最大 10）
+    target_keywords = keyword_plan.top_keywords(limit=top_n_keywords)
+
+    for kw in target_keywords:
         serp_results = fetch_serp_for_keyword(kw.keyword, limit=serp_limit)
         state.serp_results[kw.keyword] = serp_results
 

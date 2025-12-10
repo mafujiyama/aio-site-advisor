@@ -161,7 +161,7 @@ Windows
 cd C:\Users\masaki.fujiyama\Desktop\aio-site-advisor-main
 
 
-2. 仮想環境を作成
+2. 仮想環境を作成※初回のみ
 py -m venv venv
 
 
@@ -170,7 +170,7 @@ py -m venv venv
 　成功すると
 　(venv) C:\Users\masaki.fujiyama\Desktop\aio-site-advisor-main>
 
-4. パッケージインストール
+4. パッケージインストール※初回のみ
 pip install -r requirements.txt
 
 5. アプリ起動
@@ -181,6 +181,24 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 http://127.0.0.1:8001/docs
 
 
+🔳実行手順
+mac
+1. プロジェクトフォルダに移動
+cd ~/Desktop/ai_app/aio-site-advisor
+
+2. 仮想環境の作成※初回のみ
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+2. 仮想環境を有効化
+source .venv/bin/activate
+
+3. FastAPIアプリを起動
+uvicorn app.main:app --reload --port 8000
+
+4. Swaggerを開く
+http://localhost:8000/docs
 
 
 macのセッティング
@@ -188,6 +206,30 @@ pip install pydantic-settings
 
 
 
+api/analyze-lgの内容
+plannerエージェントがキーワードのプランニングを行う。
+「検索行動パターン + 製造業サイトのSEO」で自然なキーワード群を生成する
+       1. Know（知りたい）/ Informational Intent
+       2. Compare（比較したい）/ Commercial Investigation
+       3. Buy（買いたい）/ Transactional Intent
+       4. Navigational（特定の場所に行きたい）/ Navigational Intent
+
+検索キーワードのpriorityは以下のような観点から重み付けをしている
+       ① 検索ボリュームの高さが予想されるか
+       ② コンバージョンへ近いか
+       ③ BtoB製造業における重要性
+       ④ コンテンツ施策の優先度
+
+検索キーワードのreason(理由)はなぜそのキーワードが必要なのかを記載している
+
+
+| No | 項目       | 意味                            | どう生成されているか           　|
+| -- | -------- | ----------------------------- | ----------------------- 　　　　　|
+| ①  | keyword群 | seed_keyword から派生する重要キーワード10件 | LLM or ルールベース     |
+| ②  | intent   | ユーザーの検索目的分類            | Google検索意図 × 製造業向け分類    |
+| ③  | category | intentに応じてカテゴリ分類        | KNOW→基礎/設計、COMPARE→比較など 　|
+| ④  | priority | SEO施策の優先度（1〜5）           | LLMスコア or ルールベース値       |
+| ⑤  | reason   | なぜそのキーワードが必要か         | LLMまたは固定テンプレ            　|
 
 
 

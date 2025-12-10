@@ -5,9 +5,7 @@ from typing import Optional, Dict, List
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.graph.workflow import (
-    run_simple_analysis,
-)
+from app.graph.workflow import run_simple_analysis
 from app.graph.lg_workflow import graph_app
 
 from agents.keyword_planner_agent import plan_keywords as plan_keywords_agent
@@ -17,12 +15,10 @@ from models.serp_models import SerpResult
 from models.site_models import SiteStructure
 from models.analysis_models import KeywordStructureAnalysis
 
-
 router = APIRouter()
 
 
 # ========= リクエストモデル =========
-
 
 class KeywordPlanRequest(BaseModel):
     seed_keyword: str
@@ -41,7 +37,6 @@ class AnalyzeLgRequest(BaseModel):
 
 # ========= レスポンスモデル =========
 
-
 class KeywordPlanResponse(BaseModel):
     seed_keyword: str
     keyword_plan: KeywordPlan
@@ -59,7 +54,6 @@ class AnalyzeLgResponse(BaseModel):
     LangGraph を使ったマルチステップ分析のレスポンス。
     Analyzer ノードの結果 (analysis) も含める。
     """
-
     seed_keyword: str
     keyword_plan: KeywordPlan
     serp_results: Dict[str, List[SerpResult]]
@@ -69,14 +63,10 @@ class AnalyzeLgResponse(BaseModel):
 
 # ========= エンドポイント =========
 
-
 @router.post("/plan-keywords", response_model=KeywordPlanResponse)
 def plan_keywords_endpoint(body: KeywordPlanRequest) -> KeywordPlanResponse:
     """
     KeywordPlanner エージェント単体テスト用エンドポイント。
-
-    - OPENAI_API_KEY があれば LLM ベースでキーワードを生成
-    - エラー時やキー未設定時はフォールバックロジックで生成
     """
     plan: KeywordPlan = plan_keywords_agent(
         seed_keyword=body.seed_keyword,
@@ -115,6 +105,7 @@ def analyze_lg_endpoint(body: AnalyzeLgRequest) -> AnalyzeLgResponse:
     LangGraph を用いたマルチステップ分析エンドポイント。
     KeywordPlanner → SERP → Parser → Analyzer の結果を返す。
     """
+    # ★ LangGraph 用の state は dict ベース（GraphState）で始める
     initial_state = {
         "seed_keyword": body.seed_keyword,
         "site_profile": body.site_profile,

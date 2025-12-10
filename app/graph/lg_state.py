@@ -12,10 +12,8 @@ from models.analysis_models import KeywordStructureAnalysis
 class GraphState(TypedDict, total=False):
     """
     LangGraph 用の State 定義。
-
-    TypedDict を使っているので、各キーは
-    「存在するかもしれないし、しないかもしれない」状態（total=False）。
-    ノード側では .get() などで安全に扱う前提。
+    実体は「ただの dict」だが、
+    キーと値の型をわかりやすくするため TypedDict で型定義している。
     """
 
     # 入力
@@ -25,15 +23,15 @@ class GraphState(TypedDict, total=False):
     # KeywordPlanner の出力
     keyword_plan: KeywordPlan
 
-    # SERP エージェントの出力（キーワード → 検索結果リスト）
+    # SERP エージェントの出力
     serp_results: Dict[str, List[SerpResult]]
 
-    # Parser エージェントの出力（キーワード → サイト構造リスト）
+    # Parser エージェントの出力（URL → 構造）
     site_structures: Dict[str, List[SiteStructure]]
 
-    # Analyzer ノードの出力（キーワード → 分析結果）
+    # Analyzer ノードの出力
     analysis: Dict[str, KeywordStructureAnalysis]
 
     # 進捗・ログ
-    current_node: Optional[str]
+    current_node: str
     progress_messages: List[str]
