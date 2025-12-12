@@ -239,3 +239,11 @@ plannerエージェントがキーワードのプランニングを行う。
 serp_resultsの内容
 
 
+gitHubへのコミット
+mac
+cd ~/Desktop/ai_app/aio-site-advisor
+git remote -v
+git status
+git add .
+git commit -m "xxxxx update"
+git push
