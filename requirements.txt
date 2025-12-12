@@ -9,3 +9,4 @@ beautifulsoup4
 lxml
 openai>=1.52.0
 pydantic-settings>=2.4.0
+beautifulsoup4

@@ -1,37 +1,27 @@
 # app/graph/lg_state.py
+from __future__ import annotations
 
-from typing import Dict, List, Optional
-from typing_extensions import TypedDict
-
-from models.keyword_models import KeywordPlan
-from models.serp_models import SerpResult
-from models.site_models import SiteStructure
-from models.analysis_models import KeywordStructureAnalysis
+from typing import Any, Dict, Optional
 
 
-class GraphState(TypedDict, total=False):
+class GraphState(Dict[str, Any]):
     """
-    LangGraph 用の State 定義。
-    実体は「ただの dict」だが、
-    キーと値の型をわかりやすくするため TypedDict で型定義している。
+    LangGraph 風の「状態」コンテナ。
+    実体はただの dict だが、型ヒントとして分かりやすくするためのラッパ。
     """
+    pass
 
-    # 入力
-    seed_keyword: str
-    site_profile: Optional[dict]
 
-    # KeywordPlanner の出力
-    keyword_plan: KeywordPlan
-
-    # SERP エージェントの出力
-    serp_results: Dict[str, List[SerpResult]]
-
-    # Parser エージェントの出力（URL → 構造）
-    site_structures: Dict[str, List[SiteStructure]]
-
-    # Analyzer ノードの出力
-    analysis: Dict[str, KeywordStructureAnalysis]
-
-    # 進捗・ログ
-    current_node: str
-    progress_messages: List[str]
+def create_initial_state(
+    seed_keyword: str,
+    site_profile: Optional[str] = None,
+) -> GraphState:
+    """
+    ワークフロー開始時の初期 state を作成。
+    """
+    state: GraphState = GraphState()
+    state["seed_keyword"] = seed_keyword
+    state["site_profile"] = site_profile
+    state["progress_messages"] = []  # 各ノードからのログ的メッセージ
+    state["current_node"] = None
+    return state

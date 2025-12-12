@@ -180,6 +180,9 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
 6. Swaggerを開く
 http://127.0.0.1:8001/docs
 
+beautifulsoup4が入ってなければ
+(.venv) C:\Users\...\aio-site-advisor>pip install beautifulsoup4
+
 
 🔳実行手順
 mac
@@ -233,6 +236,6 @@ plannerエージェントがキーワードのプランニングを行う。
 
 
 
-
+serp_resultsの内容
 
 

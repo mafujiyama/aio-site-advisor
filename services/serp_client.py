@@ -1,121 +1,170 @@
 # services/serp_client.py
-
 from __future__ import annotations
 
 import logging
-import time
 from typing import List, Optional
 
 import requests
+from bs4 import BeautifulSoup
 
 from app.config import settings
 from models.serp_models import SerpResult
 
 logger = logging.getLogger(__name__)
 
-GOOGLE_CSE_ENDPOINT = "https://www.googleapis.com/customsearch/v1"
+GOOGLE_SEARCH_HTML_URL = "https://www.google.com/search"
+GOOGLE_CSE_URL = "https://www.googleapis.com/customsearch/v1"
 
+# ブラウザっぽい UA（HTML スクレイピングで使用）
+DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
+}
 
-def _safe_request_with_retry(
-    url: str,
-    params: dict,
-    timeout: int = 10,
-    max_retries: int = 2,
-    backoff: float = 1.5,
-) -> Optional[dict]:
-    """
-    Google CSE 429 対策付きリクエストユーティリティ。
-
-    - 合計試行回数 = max_retries + 1 回
-      （例: max_retries=2 → 最大 3 回）
-    - 429 のときだけ backoff 秒スリープしてリトライ
-    """
-    total_attempts = max_retries + 1
-
-    for attempt in range(1, total_attempts + 1):  # 1〜(max_retries+1)
-        try:
-            resp = requests.get(url, params=params, timeout=timeout)
-
-            if resp.status_code == 429:
-                logger.warning(
-                    "[serp_client] 429 Too Many Requests "
-                    f"(attempt {attempt}/{total_attempts}). "
-                    f"Sleeping {backoff} sec..."
-                )
-                # まだ次の試行があるなら待って再試行
-                if attempt < total_attempts:
-                    time.sleep(backoff)
-                    continue
-                # ここで打ち止め
-                return None
-
-            resp.raise_for_status()
-            return resp.json()
-
-        except Exception as e:
-            logger.warning(
-                "[serp_client] Request error on attempt %d/%d: %s",
-                attempt,
-                total_attempts,
-                e,
-            )
-            if attempt >= total_attempts:
-                return None
-
-    return None
-
-
-def fetch_serp_google(keyword: str, limit: int = 10) -> List[SerpResult]:
-    """
-    Google Custom Search JSON API を使って SERP を取得する。
-
-    - APIキーやCXが未設定 → 空リスト
-    - 429発生 → 短いクールダウンを挟みながらリトライ
-    - それでもダメなら空リスト
-    """
-    api_key = settings.google_search_api_key
-    cx = settings.google_search_cx
-
-    if not api_key or not cx:
-        logger.warning(
-            "[serp_client] google_search_api_key / google_search_cx が未設定のため空リストを返します"
-        )
-        return []
-
+# ------------------------------------------------------------------
+# ① Google CSE API 版（正式推奨ルート）
+# ------------------------------------------------------------------
+def fetch_serp_cse(keyword: str, limit: int = 10) -> List[SerpResult]:
     params = {
-        "key": api_key,
-        "cx": cx,
+        # app/config.py に定義されているフィールド名に合わせる
+        "key": settings.google_search_api_key,
+        "cx": settings.google_search_cx,
         "q": keyword,
-        "num": min(limit, 10),  # Google CSE の上限が 10
+        "num": min(limit, 10),
         "hl": "ja",
     }
 
-    data = _safe_request_with_retry(
-        GOOGLE_CSE_ENDPOINT,
-        params=params,
-        timeout=10,
-        max_retries=2,   # 429時に最大 2 回リトライ
-        backoff=1.5,     # 429時の待機秒
+    logger.info("[CSE] Request start: params=%s", params)
+
+    try:
+        resp = requests.get(GOOGLE_CSE_URL, params=params, timeout=10)
+    except Exception as e:
+        logger.exception("[CSE] Request failed: %s", e)
+        return []
+
+    raw_text = resp.text
+    logger.info(
+        "[CSE] Response: status=%s, length=%s, body_snippet=%s",
+        resp.status_code,
+        len(raw_text),
+        raw_text[:2000],
     )
 
-    if not data:
+    try:
+        resp.raise_for_status()
+    except Exception:
+        logger.error("[CSE] Non-200 status: %s", resp.status_code)
+        return []
+
+    data = resp.json()
+
+    items = data.get("items") or []
+    if not items:
         logger.warning(
-            "[serp_client] Failed to fetch SERP after retries keyword=%s",
-            keyword,
+            "[CSE] items is empty. keys=%s error=%s",
+            list(data.keys()),
+            data.get("error"),
         )
         return []
 
     results: List[SerpResult] = []
-    for rank, item in enumerate(data.get("items", []), start=1):
+    for idx, item in enumerate(items, start=1):
         results.append(
             SerpResult(
-                rank=rank,
-                title=item.get("title", "") or "",
-                url=item.get("link", "") or "",
-                snippet=item.get("snippet", "") or item.get("title", "") or "",
+                rank=idx,
+                title=item.get("title", ""),
+                url=item.get("link", ""),
+                snippet=item.get("snippet", ""),
             )
         )
         if len(results) >= limit:
             break
 
+    logger.info("[CSE] Parsed SERP count=%d", len(results))
     return results
+
+
+
+# ------------------------------------------------------------------
+# ② HTML スクレイピング版（PoC 用）
+# ------------------------------------------------------------------
+def fetch_serp_for_keyword_html(keyword: str, limit: int = 10) -> List[SerpResult]:
+    """
+    Google 検索結果ページ(HTML)をスクレイピングする PoC モード。
+    運用には不向きだが、動作確認用途として保持。
+    """
+    params = {
+        "q": keyword,
+        "hl": "ja",
+        "num": min(limit, 10),
+    }
+
+    logger.info("[HTML] Request start: %s", params)
+
+    try:
+        resp = requests.get(
+            GOOGLE_SEARCH_HTML_URL,
+            params=params,
+            headers=DEFAULT_HEADERS,
+            timeout=10,
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning("[HTML] Google search request failed: %s", e)
+        return []
+
+    html = resp.text
+
+    # bot 判定
+    if "Our systems have detected unusual traffic" in html:
+        logger.warning("[HTML] Bot detected (unusual traffic)")
+        return []
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    results: List[SerpResult] = []
+    for rank, g in enumerate(soup.select("div.g"), start=1):
+        a_tag = g.select_one("a")
+        title_tag = g.select_one("h3")
+
+        if not a_tag or not title_tag:
+            continue
+
+        url = a_tag.get("href", "").strip()
+        title = title_tag.get_text(strip=True)
+
+        snippet_tag = (
+            g.select_one("div[style*='-webkit-line-clamp']")
+            or g.select_one("span")
+            or g.select_one("div")
+        )
+        snippet = snippet_tag.get_text(" ", strip=True) if snippet_tag else ""
+
+        if not url:
+            continue
+
+        results.append(
+            SerpResult(rank=rank, title=title, url=url, snippet=snippet)
+        )
+
+        if len(results) >= limit:
+            break
+
+    logger.info("[HTML] SERP fetched keyword=%s results=%d", keyword, len(results))
+    return results
+
+
+# ------------------------------------------------------------------
+# ③ 既存インターフェイス（SERP Agent がこれを呼ぶ）
+# ------------------------------------------------------------------
+def fetch_serp_google(keyword: str, limit: int = 10) -> List[SerpResult]:
+    """
+    既存の呼び出しインターフェースを維持しつつ、
+    “正式版：CSE” を返すように変更。
+
+    ※ HTML 版を使いたい場合は fetch_serp_for_keyword_html() を直接呼ぶこと
+    """
+    return fetch_serp_cse(keyword, limit=limit)
