@@ -24,20 +24,38 @@ DEFAULT_HEADERS = {
     )
 }
 
+
 # ------------------------------------------------------------------
 # ① Google CSE API 版（正式推奨ルート）
 # ------------------------------------------------------------------
 def fetch_serp_cse(keyword: str, limit: int = 10) -> List[SerpResult]:
+    """
+    Google Custom Search JSON API (CSE) を使って SERP を取得する正式ルート。
+
+    - settings.google_search_api_key / settings.google_search_cx が必須
+    - エラー時・空レスポンス時は [] を返す
+    - ログにリクエスト内容とレスポンスの一部を出力してデバッグしやすくする
+    """
+    api_key = settings.google_search_api_key
+    cx = settings.google_search_cx
+
+    if not api_key or not cx:
+        logger.warning(
+            "[CSE] api_key or cx is not set. api_key=%s cx=%s",
+            bool(api_key),
+            bool(cx),
+        )
+        return []
+
     params = {
-        # app/config.py に定義されているフィールド名に合わせる
-        "key": settings.google_search_api_key,
-        "cx": settings.google_search_cx,
+        "key": api_key,
+        "cx": cx,
         "q": keyword,
-        "num": min(limit, 10),
+        "num": min(limit, 10),  # CSE の上限は 10
         "hl": "ja",
     }
 
-    logger.info("[CSE] Request start: params=%s", params)
+    logger.info("[CSE] Request start: keyword=%s params=%s", keyword, params)
 
     try:
         resp = requests.get(GOOGLE_CSE_URL, params=params, timeout=10)
@@ -56,9 +74,15 @@ def fetch_serp_cse(keyword: str, limit: int = 10) -> List[SerpResult]:
     try:
         resp.raise_for_status()
     except Exception:
-        logger.error("[CSE] Non-200 status: %s", resp.status_code)
+        # ★ エラー時の中身をちゃんと見るためのログ
+        logger.error(
+            "[CSE] Non-200 status: %s body=%s",
+            resp.status_code,
+            raw_text[:2000],
+        )
         return []
 
+    # ここからは 2xx の場合
     data = resp.json()
 
     items = data.get("items") or []
@@ -71,90 +95,21 @@ def fetch_serp_cse(keyword: str, limit: int = 10) -> List[SerpResult]:
         return []
 
     results: List[SerpResult] = []
-    for idx, item in enumerate(items, start=1):
+    for rank, item in enumerate(items, start=1):
         results.append(
             SerpResult(
-                rank=idx,
-                title=item.get("title", ""),
-                url=item.get("link", ""),
-                snippet=item.get("snippet", ""),
+                rank=rank,
+                title=item.get("title", "") or "",
+                url=item.get("link", "") or "",
+                snippet=item.get("snippet", "") or item.get("title", "") or "",
             )
         )
         if len(results) >= limit:
             break
 
-    logger.info("[CSE] Parsed SERP count=%d", len(results))
+    logger.info("[CSE] Parsed results count=%s", len(results))
     return results
 
-
-
-# ------------------------------------------------------------------
-# ② HTML スクレイピング版（PoC 用）
-# ------------------------------------------------------------------
-def fetch_serp_for_keyword_html(keyword: str, limit: int = 10) -> List[SerpResult]:
-    """
-    Google 検索結果ページ(HTML)をスクレイピングする PoC モード。
-    運用には不向きだが、動作確認用途として保持。
-    """
-    params = {
-        "q": keyword,
-        "hl": "ja",
-        "num": min(limit, 10),
-    }
-
-    logger.info("[HTML] Request start: %s", params)
-
-    try:
-        resp = requests.get(
-            GOOGLE_SEARCH_HTML_URL,
-            params=params,
-            headers=DEFAULT_HEADERS,
-            timeout=10,
-        )
-        resp.raise_for_status()
-    except Exception as e:
-        logger.warning("[HTML] Google search request failed: %s", e)
-        return []
-
-    html = resp.text
-
-    # bot 判定
-    if "Our systems have detected unusual traffic" in html:
-        logger.warning("[HTML] Bot detected (unusual traffic)")
-        return []
-
-    soup = BeautifulSoup(html, "html.parser")
-
-    results: List[SerpResult] = []
-    for rank, g in enumerate(soup.select("div.g"), start=1):
-        a_tag = g.select_one("a")
-        title_tag = g.select_one("h3")
-
-        if not a_tag or not title_tag:
-            continue
-
-        url = a_tag.get("href", "").strip()
-        title = title_tag.get_text(strip=True)
-
-        snippet_tag = (
-            g.select_one("div[style*='-webkit-line-clamp']")
-            or g.select_one("span")
-            or g.select_one("div")
-        )
-        snippet = snippet_tag.get_text(" ", strip=True) if snippet_tag else ""
-
-        if not url:
-            continue
-
-        results.append(
-            SerpResult(rank=rank, title=title, url=url, snippet=snippet)
-        )
-
-        if len(results) >= limit:
-            break
-
-    logger.info("[HTML] SERP fetched keyword=%s results=%d", keyword, len(results))
-    return results
 
 
 # ------------------------------------------------------------------

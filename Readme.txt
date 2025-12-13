@@ -158,7 +158,7 @@ services/
 ■実行手順
 Windows
 1.プロジェクトフォルダに移動
-cd C:\Users\masaki.fujiyama\Desktop\aio-site-advisor-main
+cd C:\Users\masaki.fujiyama\Desktop\aio-site-advisor
 
 
 2. 仮想環境を作成※初回のみ
@@ -166,9 +166,9 @@ py -m venv venv
 
 
 3. 稼働環境を有効化
-py -m venv venv
+.\.venv\Scripts\activate
 　成功すると
-　(venv) C:\Users\masaki.fujiyama\Desktop\aio-site-advisor-main>
+　(venv) C:\Users\masaki.fujiyama\Desktop\aio-site-advisor>
 
 4. パッケージインストール※初回のみ
 pip install -r requirements.txt
@@ -239,11 +239,40 @@ plannerエージェントがキーワードのプランニングを行う。
 serp_resultsの内容
 
 
+【git操作】
+■mac
+githubからダウンロード
+cd ~/Desktop/aio-site-advisor
+git status
+git pull
+
+
 gitHubへのコミット
-mac
 cd ~/Desktop/ai_app/aio-site-advisor
 git remote -v
 git status
 git add .
 git commit -m "xxxxx update"
 git push
+
+git管理されてない場合（初回）
+git --version
+git clone https://github.com/mafujiyama/aio-site-advisor.git
+
+■Windows
+githubからダウンロード
+cd C:\Users\masaki.fujiyama\Desktop\aio-site-advisor
+git status
+git pull
+
+gitHubへのへコミット
+cd C:\Users\masaki.fujiyama\Desktop\aio-site-advisor
+git status
+git add .
+git commit -m "update"
+git push
+
+git管理されてない場合（初回）
+dir /a #確認する.gitがあればでてくる
+git init
+git remote add origin https://github.com/xxxx/xxxx.git
